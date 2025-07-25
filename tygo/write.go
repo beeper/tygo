@@ -143,9 +143,12 @@ func (g *PackageGenerator) writeType(
 		// NOTE(fork): Go permits the use of `struct`s as `map` keys. JavaScript
 		// offers no comparable convenience. As an escape hatch, recognize a set
 		// of type names to never use as TypeScript index signature keys.
-		_, forbidden := g.conf.TypesForbiddenAsIndexSignatureKey[stringifyTrivial(t.Key)]
+		ts := stringifyTrivial(t.Key)
+		_, forbidden := g.conf.TypesForbiddenAsIndexSignatureKey[ts]
 		if forbidden {
-			s.WriteString("string")
+			overriddenType := "string"
+			log.Printf("fork: forbidding the use of %v as an index signature key, emitting %v instead", ts, overriddenType)
+			s.WriteString(overriddenType)
 		} else {
 			g.writeType(s, t.Key, t, depth, false)
 		}

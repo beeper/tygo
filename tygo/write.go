@@ -100,10 +100,17 @@ func (g *PackageGenerator) writeType(
 		g.writeIndent(s, depth+1)
 		s.WriteByte('}')
 	case *ast.Ident:
-		if t.String() == "any" {
-			s.WriteString(getIdent(g.conf.FallbackType))
+		ts := t.String()
+		// NOTE(fork): Look up type mappings even for plain identifiers. Upstream
+		// only looks up mappings for selector expressions (the form `X.Y`).
+		if mappedTsType, ok := g.conf.TypeMappings[ts]; ok {
+			s.WriteString(mappedTsType)
 		} else {
-			s.WriteString(getIdent(t.String()))
+			if ts == "any" {
+				s.WriteString(getIdent(g.conf.FallbackType))
+			} else {
+				s.WriteString(getIdent(ts))
+			}
 		}
 	case *ast.SelectorExpr:
 		// e.g. `time.Time`

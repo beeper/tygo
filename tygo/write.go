@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -50,6 +51,19 @@ func getIdent(s string) string {
 		return "number /* " + s + " */"
 	}
 	return s
+}
+
+func escapeStringForEmit(str string) string {
+	if strings.HasPrefix(str, "`") {
+		return backquoteEscapeRegexp.ReplaceAllString(str, `\$1`)
+	} else {
+		return unicode8Regexp.ReplaceAllStringFunc(str, func(s string) string {
+			if len(s) == 10 {
+				s = fmt.Sprintf("\\u{%s}", strings.ToUpper(s[2:]))
+			}
+			return s
+		})
+	}
 }
 
 func stringifyTrivial(expr ast.Expr) string {
@@ -172,16 +186,7 @@ func (g *PackageGenerator) writeType(
 				t.Value = fmt.Sprintf("0x%04X /* %s */", char, t.Value)
 			}
 		case token.STRING:
-			if strings.HasPrefix(t.Value, "`") {
-				t.Value = backquoteEscapeRegexp.ReplaceAllString(t.Value, `\$1`)
-			} else {
-				t.Value = unicode8Regexp.ReplaceAllStringFunc(t.Value, func(s string) string {
-					if len(s) == 10 {
-						s = fmt.Sprintf("\\u{%s}", strings.ToUpper(s[2:]))
-					}
-					return s
-				})
-			}
+			t.Value = escapeStringForEmit(t.Value)
 		}
 		s.WriteString(t.Value)
 	case *ast.ParenExpr:
@@ -213,7 +218,27 @@ func (g *PackageGenerator) writeType(
 		}
 	case *ast.InterfaceType:
 		g.writeInterfaceFields(s, t.Methods.List, depth+1)
-	case *ast.CallExpr, *ast.FuncType, *ast.ChanType:
+	case *ast.CallExpr:
+		// NOTE(fork): This method is invoked for top-level constant _values_, not just
+		// types. For example, we'd find ourselves here when processing:
+		//
+		//   const VanillaID = types.IceCreamFlavorID("vanilla")
+		//
+		// However, it's not appropriate to emit a type in value position, so do
+		// a gross hack to recognize calls of the form:
+		//
+		//   X.Y("string literal")
+		//
+		// And ensure they make it into the output.
+		if selector, ok := t.Fun.(*ast.SelectorExpr); ok && len(t.Args) == 1 {
+			if lit, ok := t.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				log.Printf("fork: detected trivial use of type alias, emitting literal constant: %v (%v)", lit.Value, selector)
+				s.WriteString(escapeStringForEmit(lit.Value))
+				break
+			}
+		}
+		s.WriteString(g.conf.FallbackType)
+	case *ast.FuncType, *ast.ChanType:
 		s.WriteString(g.conf.FallbackType)
 	case *ast.UnaryExpr:
 		switch t.Op {

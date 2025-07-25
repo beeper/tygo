@@ -26,6 +26,9 @@ type PackageConfig struct {
 	// Be default unrecognized types will be output as `any /* name */`.
 	TypeMappings map[string]string `yaml:"type_mappings"`
 
+	// Type names (_before_ mappings are applied) that may not appear as keys within TypeScript index signatures. They are unconditionally replaced with `string`.
+	TypesForbiddenAsIndexSignatureKey map[string]bool `yaml:"types_forbidden_as_index_signature_key"`
+
 	// This content will be put at the top of the output Typescript file.
 	// You would generally use this to import custom types.
 	Frontmatter string `yaml:"frontmatter"`
@@ -64,8 +67,9 @@ type PackageConfig struct {
 }
 
 type Config struct {
-	TypeMappings map[string]string `yaml:"type_mappings"`
-	Packages     []*PackageConfig  `yaml:"packages"`
+	TypeMappings                      map[string]string `yaml:"type_mappings"`
+	TypesForbiddenAsIndexSignatureKey map[string]bool   `yaml:"types_forbidden_as_index_signature_key"`
+	Packages                          []*PackageConfig  `yaml:"packages"`
 }
 
 func (c Config) PackageNames() []string {
@@ -80,7 +84,8 @@ func (c Config) PackageNames() []string {
 func (c Config) PackageConfig(packagePath string) *PackageConfig {
 	for _, pc := range c.Packages {
 		if pc.Path == packagePath {
-			pc.TypeMappings = c.mergeMappings(pc.TypeMappings)
+			pc.TypeMappings = c.mergeTypeMappings(pc.TypeMappings)
+			pc.TypesForbiddenAsIndexSignatureKey = c.mergeIndexSignatureForbiddenTypes(pc.TypesForbiddenAsIndexSignatureKey)
 			pcNormalized, err := pc.Normalize()
 			if err != nil {
 				log.Fatalf("Error in config for package %s: %s", packagePath, err)
@@ -191,9 +196,20 @@ func (pc PackageConfig) Normalize() (PackageConfig, error) {
 	return pc, nil
 }
 
-func (c Config) mergeMappings(pkg map[string]string) map[string]string {
+func (c Config) mergeTypeMappings(pkg map[string]string) map[string]string {
 	mappings := make(map[string]string)
 	for k, v := range c.TypeMappings {
+		mappings[k] = v
+	}
+	for k, v := range pkg {
+		mappings[k] = v
+	}
+	return mappings
+}
+
+func (c Config) mergeIndexSignatureForbiddenTypes(pkg map[string]bool) map[string]bool {
+	mappings := make(map[string]bool)
+	for k, v := range c.TypesForbiddenAsIndexSignatureKey {
 		mappings[k] = v
 	}
 	for k, v := range pkg {

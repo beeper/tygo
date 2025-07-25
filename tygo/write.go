@@ -52,6 +52,17 @@ func getIdent(s string) string {
 	return s
 }
 
+func stringifyTrivial(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.SelectorExpr:
+		return fmt.Sprintf("%s.%s", t.X, t.Sel)
+	case *ast.Ident:
+		return t.Name
+	default:
+		return ""
+	}
+}
+
 func (g *PackageGenerator) writeIndent(s *strings.Builder, depth int) {
 	for i := 0; i < depth; i++ {
 		s.WriteString(g.conf.Indent)
@@ -96,7 +107,7 @@ func (g *PackageGenerator) writeType(
 		}
 	case *ast.SelectorExpr:
 		// e.g. `time.Time`
-		longType := fmt.Sprintf("%s.%s", t.X, t.Sel)
+		longType := stringifyTrivial(t)
 		mappedTsType, ok := g.conf.TypeMappings[longType]
 		if ok {
 			s.WriteString(mappedTsType)
@@ -108,7 +119,15 @@ func (g *PackageGenerator) writeType(
 		}
 	case *ast.MapType:
 		s.WriteString("{ [key: ")
-		g.writeType(s, t.Key, t, depth, false)
+		// NOTE(fork): Go permits the use of `struct`s as `map` keys. JavaScript
+		// offers no comparable convenience. As an escape hatch, recognize a set
+		// of type names to never use as TypeScript index signature keys.
+		_, forbidden := g.conf.TypesForbiddenAsIndexSignatureKey[stringifyTrivial(t.Key)]
+		if forbidden {
+			s.WriteString("string")
+		} else {
+			g.writeType(s, t.Key, t, depth, false)
+		}
 		s.WriteString("]: ")
 		g.writeType(s, t.Value, t, depth, false)
 		s.WriteByte('}')
